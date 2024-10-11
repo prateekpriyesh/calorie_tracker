@@ -11,18 +11,22 @@ const UserDetail = () => {
   const { id } = useParams();
   const [foodData, setFoodData] = useState([]);
   const [activityData, setActivityData] = useState([]);
-  const [bmr, setBMR] = useState(-1800);
+  const [bmr, setBMR] = useState(0);
   const [netCalories, setNetCalories] = useState(0);
   const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
   const [isActivityModalOpen, setIsActivityModalOpen] = useState(false);
   const [userName, setUserName] = useState("");
+  const [userDetails, setUserDetails] = useState({});
 
   const fetchUserData = async () => {
     try {
       const response = await axios.get(`http://localhost:5000/api/users`);
       const user = response.data.find(user => user._id === id);
+      console.log("Fetched User Data:", user);
       if (user) {
         setUserName(user.name);
+        setUserDetails(user);
+        calculateBMR(user);
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -49,11 +53,39 @@ const UserDetail = () => {
     }
   };
 
+  const calculateBMR = user => {
+    const weight = parseFloat(user.weight);
+    const height = parseFloat(user.height);
+    const age = parseInt(user.age, 10);
+    const sex = user.sex ? user.sex.toLowerCase() : "";
+
+    console.log("Calculating BMR for User:", { weight, height, age, sex });
+
+    if (!isNaN(weight) && !isNaN(height) && !isNaN(age)) {
+      let bmrValue = 0;
+
+      if (sex === "male") {
+        bmrValue = 66.473 + 13.7516 * weight + 5.0033 * height - 6.755 * age;
+      } else if (sex === "female") {
+        bmrValue = 655.0955 + 9.5634 * weight + 1.8496 * height - 4.6756 * age;
+      } else {
+        console.warn("BMR calculation: Invalid sex value:", sex);
+        setBMR(0);
+        return;
+      }
+
+      console.log("Calculated BMR:", bmrValue);
+      setBMR(bmrValue);
+    } else {
+      console.warn("BMR calculation: Invalid input data:", user);
+      setBMR(0);
+    }
+  };
+
   const totalCaloriesIn = foodData.reduce(
     (acc, item) => acc + item.calorieIn,
     0
   );
-
   const totalCaloriesOut = activityData.reduce(
     (acc, item) => acc + item.calorieOut,
     0
@@ -80,9 +112,24 @@ const UserDetail = () => {
     fetchActivityData();
   };
 
+  const calculateTotalDuration = () => {
+    const totalMinutes = activityData.reduce((acc, item) => {
+      const decimalHours = parseFloat(item.duration);
+      const hoursToMinutes = Math.floor(decimalHours) * 60;
+      const fractionalMinutes = (decimalHours % 1) * 60;
+      return acc + hoursToMinutes + fractionalMinutes;
+    }, 0);
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return { hours, minutes };
+  };
+
+  const totalDuration = calculateTotalDuration();
+
   return (
     <div className="user-details">
-      <h1>{userName ? `User ${userName} Details` : `User Details`}</h1>
+      <h1>{userName ? `${userName} Details` : `User Details`}</h1>
 
       <div className="actions">
         <button onClick={() => setIsFoodModalOpen(true)}>Add Food Data</button>
@@ -132,21 +179,40 @@ const UserDetail = () => {
                   <th>Activity Name</th>
                   <th>Description</th>
                   <th>MET Value</th>
-                  <th>Duration</th>
+                  <th>Duration (H:M)</th>{" "}
+                  {/* Show duration in hours and minutes */}
                   <th>Calories Out</th>
                 </tr>
               </thead>
               <tbody>
-                {activityData.map((item, index) => (
-                  <tr key={index}>
-                    <td>{item.date}</td>
-                    <td>{item.name}</td>
-                    <td>{item.description}</td>
-                    <td>{item.metValue}</td>
-                    <td>{item.duration}</td>
-                    <td>{item.calorieOut}</td>
-                  </tr>
-                ))}
+                {activityData.map((item, index) => {
+                  const [
+                    hoursPart,
+                    minutesPart
+                  ] = item.duration.toString().split(".");
+
+                  let hours = parseInt(hoursPart, 10);
+                  let minutes = minutesPart
+                    ? parseInt(minutesPart.padEnd(2, "0"), 10)
+                    : 0;
+
+                  if (minutes >= 60) {
+                    hours += Math.floor(minutes / 60);
+                    minutes = minutes % 60;
+                  }
+
+                  return (
+                    <tr key={index}>
+                      <td>{item.date}</td>
+                      <td>{item.name}</td>
+                      <td>{item.description}</td>
+                      <td>{item.metValue}</td>
+                      <td>{`${hours}h ${minutes}m`}</td>{" "}
+                      {/* Display hours and minutes */}
+                      <td>{item.calorieOut}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           ) : (
@@ -154,12 +220,38 @@ const UserDetail = () => {
           )}
         </div>
 
+        {/* Net Calorie Section */}
         <div className="net-calories-section">
           <h2>Net Calorie</h2>
-          <p>BMR: {bmr}</p>
-          <p>Food: {totalCaloriesIn}</p>
-          <p>Activity: {totalCaloriesOut}</p>
-          <p>Net Calories: {netCalories}</p>
+          <table>
+            <tbody>
+              <tr>
+                <td>BMR:</td>
+                <td>{bmr >= 0 ? `+${bmr.toFixed(2)}` : bmr.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td>Food:</td>
+                <td>+{totalCaloriesIn}</td>
+              </tr>
+              <tr>
+                <td>Activity:</td>
+                <td>-{totalCaloriesOut}</td>
+              </tr>
+              <tr>
+                <td>Total Activity Duration:</td>
+                <td>{`${totalDuration.hours}h ${totalDuration.minutes}m`}</td>{" "}
+                {/* Display total duration */}
+              </tr>
+              <tr>
+                <td>Net Calories:</td>
+                <td>
+                  {netCalories >= 0
+                    ? `+${netCalories.toFixed(2)}`
+                    : netCalories.toFixed(2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
