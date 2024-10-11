@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
+import Select from "react-select";
 import "./CTStylings.css";
+import debounce from "lodash.debounce";
 
 const AddFood = ({ userId, onClose }) => {
   const [formData, setFormData] = useState({
@@ -12,11 +14,60 @@ const AddFood = ({ userId, onClose }) => {
     calorieIn: ""
   });
 
+  const [foodOptions, setFoodOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchFoodData = debounce(async inputValue => {
+      try {
+        setLoading(true);
+        const res = await axios.get(`http://localhost:5000/api/excel/foods`, {
+          params: { search: inputValue || "", limit: 50 }
+        });
+        const options = res.data.map(food => ({
+          value: food.name,
+          label: `${food.name} - ${food.caloriesPerServing} kcal`,
+          caloriesPerServing: food.caloriesPerServing
+        }));
+        setFoodOptions(options);
+        setLoading(false);
+      } catch (error) {
+        console.error("Error fetching food data:", error);
+        setLoading(false);
+      }
+    }, 500);
+
+    fetchFoodData("");
+    return () => fetchFoodData.cancel();
+  }, []);
+
   const handleChange = e => {
     const { name, value } = e.target;
     setFormData({
       ...formData,
       [name]: value
+    });
+  };
+
+  const handleFoodSelect = selectedOption => {
+    if (selectedOption) {
+      setFormData({
+        ...formData,
+        foodName: selectedOption.value,
+        calorieIn:
+          selectedOption.caloriesPerServing * parseFloat(formData.serving || 0)
+      });
+    }
+  };
+
+  const handleServingChange = e => {
+    const serving = parseFloat(e.target.value);
+    setFormData({
+      ...formData,
+      serving: serving,
+      calorieIn:
+        foodOptions.find(option => option.value === formData.foodName)
+          ?.caloriesPerServing * serving || 0
     });
   };
 
@@ -58,11 +109,12 @@ const AddFood = ({ userId, onClose }) => {
       />
 
       <label>Food Name</label>
-      <input
-        type="text"
+      <Select
         name="foodName"
-        value={formData.foodName}
-        onChange={handleChange}
+        options={foodOptions}
+        onChange={handleFoodSelect}
+        placeholder="Search and select food..."
+        isLoading={loading}
         required
       />
 
@@ -100,17 +152,18 @@ const AddFood = ({ userId, onClose }) => {
         type="number"
         name="serving"
         value={formData.serving}
-        onChange={handleChange}
+        onChange={handleServingChange}
         required
+        min="1"
+        placeholder="Number of servings"
       />
 
-      <label>Calories In</label>
+      <label>Calories In (Calculated)</label>
       <input
         type="number"
         name="calorieIn"
         value={formData.calorieIn}
-        onChange={handleChange}
-        required
+        readOnly
       />
 
       <button type="submit" disabled={isSubmitDisabled}>
